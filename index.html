@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Intelligenza Artificiale Jarvis</title>
+  <title>Jarvis - Posizione Live</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -30,6 +30,7 @@
       color: white;
       border: 0;
       border-radius: 8px;
+      cursor: pointer;
     }
     #status, #coords { overflow-wrap: anywhere; }
   </style>
@@ -37,27 +38,38 @@
 <body>
 <main>
   <h1>Jarvis</h1>
-  <p>Accedi con il tuo account Firebase.</p>
+  <p>Accedi con l'account Firebase autorizzato.</p>
 
-  <input id="email" type="email" placeholder="Email">
-  <input id="password" type="password" placeholder="Password">
+  <input id="email" type="email" placeholder="Email"
+         autocomplete="username">
+  <input id="password" type="password" placeholder="Password"
+         autocomplete="current-password">
   <button id="login">Accedi</button>
 
   <hr>
-  <p>La posizione verrà condivisa solo dopo aver autorizzato il GPS.</p>
-  <button id="share">Consento e condivido la mia posizione</button>
-  <button id="view">Visualizza posizione condivisa</button>
+  <p>Condivisione volontaria della posizione GPS.</p>
+
+  <button id="share">
+    Consento e condivido la posizione da questo telefono
+  </button>
+
+  <button id="view">
+    Visualizza la posizione di mia nipote
+  </button>
 
   <p id="status">Non connesso.</p>
   <p id="coords"></p>
 </main>
 
 <script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+  import { initializeApp }
+    from "https://www.gstatic.com/firebasejs/11.10.0/firebase-app.js";
+
   import {
     getAuth,
     signInWithEmailAndPassword
   } from "https://www.gstatic.com/firebasejs/11.10.0/firebase-auth.js";
+
   import {
     getDatabase,
     ref,
@@ -79,10 +91,12 @@
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getDatabase(app);
+
   const status = document.getElementById("status");
   const coords = document.getElementById("coords");
 
   let watchId = null;
+  let unsubscribe = null;
 
   document.getElementById("login").onclick = async () => {
     try {
@@ -93,81 +107,107 @@
       );
       status.textContent = "Accesso effettuato.";
     } catch (error) {
-      status.textContent = "Accesso non riuscito: " + error.message;
+      status.textContent = "Errore di accesso: " + error.message;
     }
   };
 
+  // La posizione condivisa viene salvata per questo specifico ruolo.
+  // Sul telefono della nipote, premere questo pulsante per autorizzare
+  // e avviare la condivisione.
   document.getElementById("share").onclick = () => {
     if (!auth.currentUser) {
-      status.textContent = "Accedi prima con il tuo account autorizzato.";
+      status.textContent = "Accedi prima.";
       return;
     }
 
     if (!navigator.geolocation) {
-      status.textContent = "Questo browser non supporta la geolocalizzazione.";
+      status.textContent = "Geolocalizzazione non supportata.";
       return;
     }
 
-    status.textContent = "Richiesta del permesso GPS...";
+    if (watchId !== null) {
+      status.textContent = "La condivisione è già attiva su questo telefono.";
+      return;
+    }
 
-    watchId = navigator.geolocation.watchPosition(async (position) => {
-      try {
-        const uid = auth.currentUser?.uid;
-        if (!uid) return;
+    status.textContent = "In attesa del permesso GPS...";
 
-        await set(ref(db, "positions/" + uid), {
-          lat: position.coords.latitude,
-          lon: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-          updatedAt: Date.now()
-        });
+    watchId = navigator.geolocation.watchPosition(
+      async (position) => {
+        try {
+          const uid = auth.currentUser?.uid;
+          if (!uid) return;
 
-        status.textContent = "Posizione inviata al database.";
-      } catch (error) {
-        status.textContent = "Invio non riuscito: " + error.message;
+          await set(
+            ref(db, "positions/" + uid + "/devices/niece"),
+            {
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              accuracy: position.coords.accuracy,
+              updatedAt: Date.now()
+            }
+          );
+
+          status.textContent = "Posizione condivisa da questo telefono.";
+        } catch (error) {
+          status.textContent = "Errore nel salvataggio: " + error.message;
+        }
+      },
+      (error) => {
+        status.textContent = "Errore GPS: " + error.message;
+        watchId = null;
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 5000,
+        timeout: 20000
       }
-    }, (error) => {
-      status.textContent = "GPS non disponibile: " + error.message;
-    }, {
-      enableHighAccuracy: true,
-      maximumAge: 5000,
-      timeout: 15000
-    });
+    );
   };
 
+  // Legge in tempo reale la posizione condivisa dal telefono della nipote.
   document.getElementById("view").onclick = () => {
     if (!auth.currentUser) {
-      status.textContent = "Accedi prima con il tuo account autorizzato.";
+      status.textContent = "Accedi prima.";
       return;
     }
 
-    onValue(ref(db, "positions/" + auth.currentUser.uid), (snapshot) => {
-      const position = snapshot.val();
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
 
-      if (!position) {
-        coords.textContent = "Nessuna posizione disponibile.";
-        return;
+    coords.textContent = "";
+    status.textContent = "Ricerca della posizione condivisa...";
+
+    const uid = auth.currentUser.uid;
+    const locationRef = ref(db, "positions/" + uid + "/devices/niece");
+
+    unsubscribe = onValue(
+      locationRef,
+      (snapshot) => {
+        if (!snapshot.exists()) {
+          status.textContent =
+            "Nessuna posizione trovata. Sul telefono di tua nipote, accedi e premi il pulsante di condivisione GPS.";
+          coords.textContent = "";
+          return;
+        }
+
+        const p = snapshot.val();
+        status.textContent = "Posizione ricevuta.";
+        coords.textContent =
+          "Latitudine: " + p.lat +
+          "\nLongitudine: " + p.lon +
+          "\nPrecisione GPS: circa " + Math.round(p.accuracy) + " metri" +
+          "\nUltimo aggiornamento: " +
+          new Date(p.updatedAt).toLocaleString("it-IT") +
+          "\n\nApri la posizione: https://www.google.com/maps?q=" +
+          encodeURIComponent(p.lat + "," + p.lon);
+      },
+      (error) => {
+        status.textContent = "Errore di lettura: " + error.message;
       }
-
-      coords.replaceChildren();
-
-      const details = document.createElement("p");
-      details.textContent =
-        `Latitudine: ${position.lat}; longitudine: ${position.lon}; ` +
-        `precisione: circa ${Math.round(position.accuracy)} metri.`;
-      coords.appendChild(details);
-
-      const mapLink = document.createElement("a");
-      mapLink.href =
-        `https://www.openstreetmap.org/?mlat=${position.lat}` +
-        `&mlon=${position.lon}#map=16/${position.lat}/${position.lon}`;
-      mapLink.target = "_blank";
-      mapLink.rel = "noopener noreferrer";
-      mapLink.textContent = "Apri posizione sulla mappa";
-      coords.appendChild(mapLink);
-    }, (error) => {
-      status.textContent = "Lettura non consentita: " + error.message;
-    });
+    );
   };
 </script>
 </body>
