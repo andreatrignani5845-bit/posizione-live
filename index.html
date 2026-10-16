@@ -1,0 +1,82 @@
+
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Intelligenza Artificiale Jarvis</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      text-align: center;
+      background: #f3f5f9;
+      color: #172033;
+    }
+    main {
+      background: white;
+      padding: 28px;
+      border-radius: 18px;
+      box-shadow: 0 4px 18px #0001;
+    }
+    button {
+      padding: 14px 20px;
+      border: 0;
+      border-radius: 10px;
+      background: #2459d3;
+      color: white;
+      font-size: 16px;
+    }
+    #status { margin-top: 20px; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Jarvis</h1>
+    <p>Condivisione della posizione</p>
+    <p>La tua posizione verrà richiesta solo se scegli di condividerla.</p>
+    <button id="start">Consento e condivido la posizione</button>
+    <button id="stop" hidden>Interrompi condivisione</button>
+    <p id="status">Condivisione non attiva.</p>
+  </main>
+  <script>
+    let watchId = null;
+
+    document.getElementById("start").onclick = () => {
+      if (!navigator.geolocation) {
+        document.getElementById("status").textContent =
+          "Questo browser non supporta la geolocalizzazione.";
+        return;
+      }
+
+      document.getElementById("status").textContent =
+        "Richiesta di autorizzazione GPS...";
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          document.getElementById("status").textContent =
+            `Posizione condivisa in questa pagina: ${lat}, ${lon}. ` +
+            `Precisione circa ${Math.round(position.coords.accuracy)} metri.`;
+          document.getElementById("stop").hidden = false;
+        },
+        (error) => {
+          document.getElementById("status").textContent =
+            "Posizione non disponibile. Controlla i permessi del browser.";
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+      );
+    };
+
+    document.getElementById("stop").onclick = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = null;
+      document.getElementById("status").textContent =
+        "Condivisione interrotta.";
+      document.getElementById("stop").hidden = true;
+    };
+  </script>
+</body>
+</html>
